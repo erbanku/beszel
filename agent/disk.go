@@ -174,6 +174,40 @@ func (a *Agent) initializeDiskInfo() {
 		}
 	}
 
+	// Monitor all disk partitions if MONITOR_ALL_DISKS is set
+	if monitorAll, exists := GetEnv("MONITOR_ALL_DISKS"); exists && (monitorAll == "true" || monitorAll == "1") {
+		slog.Info("Monitoring all disk partitions")
+		// Build a set of already tracked mountpoints
+		existingMountpoints := make(map[string]bool)
+		for _, stats := range a.fsStats {
+			existingMountpoints[stats.Mountpoint] = true
+		}
+
+		// Add all physical partitions not already tracked
+		for _, p := range partitions {
+			// Skip if already tracked
+			if existingMountpoints[p.Mountpoint] {
+				continue
+			}
+
+			// Skip virtual and temporary filesystems
+			if shouldSkipFilesystem(p.Fstype, p.Mountpoint) {
+				continue
+			}
+
+			// Skip if device doesn't start with /dev (Linux) or isn't a drive letter (Windows)
+			if !isWindows && !strings.HasPrefix(p.Device, "/dev") {
+				continue
+			}
+
+			// Try to get disk usage to verify it's accessible
+			if usage, err := disk.Usage(p.Mountpoint); err == nil && usage.Total > 0 {
+				slog.Info("Auto-discovered partition", "device", p.Device, "mountpoint", p.Mountpoint, "fstype", p.Fstype)
+				addFsStat(p.Device, p.Mountpoint, false)
+			}
+		}
+	}
+
 	// If no root filesystem set, use fallback
 	if !hasRoot {
 		rootDevice, _ := findIoDevice(filepath.Base(filesystem), diskIoCounters, a.fsStats)
@@ -182,6 +216,37 @@ func (a *Agent) initializeDiskInfo() {
 	}
 
 	a.initializeDiskIoStats(diskIoCounters)
+}
+
+// shouldSkipFilesystem returns true if the filesystem type or mountpoint should be skipped
+func shouldSkipFilesystem(fstype, mountpoint string) bool {
+	// Skip virtual and temporary filesystems
+	skipFsTypes := []string{
+		"tmpfs", "devtmpfs", "devfs", "procfs", "sysfs", "cgroup", "cgroup2",
+		"overlay", "squashfs", "iso9660", "udf", "fuse", "fusectl",
+		"securityfs", "debugfs", "tracefs", "pstore", "configfs",
+		"binfmt_misc", "mqueue", "hugetlbfs", "autofs", "nsfs", "ramfs",
+	}
+
+	for _, skipType := range skipFsTypes {
+		if strings.EqualFold(fstype, skipType) {
+			return true
+		}
+	}
+
+	// Skip common virtual mountpoints
+	skipMountpoints := []string{
+		"/dev", "/proc", "/sys", "/run", "/tmp",
+		"/dev/shm", "/run/lock", "/sys/fs/cgroup",
+	}
+
+	for _, skipMount := range skipMountpoints {
+		if strings.HasPrefix(mountpoint, skipMount) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Returns matching device from /proc/diskstats,

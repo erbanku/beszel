@@ -235,6 +235,95 @@ func TestExtraFsKeyGeneration(t *testing.T) {
 	}
 }
 
+func TestShouldSkipFilesystem(t *testing.T) {
+	tests := []struct {
+		name       string
+		fstype     string
+		mountpoint string
+		shouldSkip bool
+	}{
+		{
+			name:       "skip tmpfs",
+			fstype:     "tmpfs",
+			mountpoint: "/tmp",
+			shouldSkip: true,
+		},
+		{
+			name:       "skip devtmpfs",
+			fstype:     "devtmpfs",
+			mountpoint: "/dev",
+			shouldSkip: true,
+		},
+		{
+			name:       "skip sysfs",
+			fstype:     "sysfs",
+			mountpoint: "/sys",
+			shouldSkip: true,
+		},
+		{
+			name:       "skip /proc",
+			fstype:     "procfs",
+			mountpoint: "/proc",
+			shouldSkip: true,
+		},
+		{
+			name:       "skip overlay",
+			fstype:     "overlay",
+			mountpoint: "/var/lib/docker/overlay2",
+			shouldSkip: true,
+		},
+		{
+			name:       "keep ext4",
+			fstype:     "ext4",
+			mountpoint: "/mnt/storage",
+			shouldSkip: false,
+		},
+		{
+			name:       "keep xfs",
+			fstype:     "xfs",
+			mountpoint: "/data",
+			shouldSkip: false,
+		},
+		{
+			name:       "keep ntfs",
+			fstype:     "ntfs",
+			mountpoint: "/mnt/windows",
+			shouldSkip: false,
+		},
+		{
+			name:       "keep btrfs",
+			fstype:     "btrfs",
+			mountpoint: "/",
+			shouldSkip: false,
+		},
+		{
+			name:       "skip /run/something",
+			fstype:     "ext4",
+			mountpoint: "/run/something",
+			shouldSkip: true,
+		},
+		{
+			name:       "skip /sys/fs/cgroup",
+			fstype:     "cgroup2",
+			mountpoint: "/sys/fs/cgroup",
+			shouldSkip: true,
+		},
+		{
+			name:       "keep root",
+			fstype:     "ext4",
+			mountpoint: "/",
+			shouldSkip: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldSkipFilesystem(tt.fstype, tt.mountpoint)
+			assert.Equal(t, tt.shouldSkip, result)
+		})
+	}
+}
+
 func TestDiskUsageCaching(t *testing.T) {
 	t.Run("caching disabled updates all filesystems", func(t *testing.T) {
 		agent := &Agent{
