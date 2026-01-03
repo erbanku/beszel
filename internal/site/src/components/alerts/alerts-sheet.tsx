@@ -35,12 +35,12 @@ const failedUpdateToast = (error: unknown) => {
 
 /** Create or update alerts for a given name and systems */
 const upsertAlerts = debounce(
-	async ({ name, value, min, systems }: { name: string; value: number; min: number; systems: string[] }) => {
+	async ({ name, value, min, systems, excluded_partitions }: { name: string; value: number; min: number; systems: string[]; excluded_partitions?: string[] }) => {
 		try {
 			await pb.send<{ success: boolean }>(endpoint, {
 				method: "POST",
 				// overwrite is always true because we've done filtering client side
-				body: { name, value, min, systems, overwrite: true },
+				body: { name, value, min, systems, overwrite: true, excluded_partitions },
 			})
 		} catch (error) {
 			failedUpdateToast(error)
@@ -172,8 +172,19 @@ export function AlertContent({
 	const [checked, setChecked] = useState(global ? false : !!alert)
 	const [min, setMin] = useState(alert?.min || 10)
 	const [value, setValue] = useState(alert?.value || (singleDescription ? 0 : (alertData.start ?? 80)))
+	const [excludedPartitions, setExcludedPartitions] = useState<string[]>(alert?.excluded_partitions || [])
 
 	const Icon = alertData.icon
+	
+	// Get available partitions for disk alerts
+	const availablePartitions = useMemo(() => {
+		if (alertKey !== "Disk") return []
+		const partitions: string[] = ["root"]
+		if (system.info?.efs) {
+			partitions.push(...Object.keys(system.info.efs))
+		}
+		return partitions
+	}, [alertKey, system.info?.efs])
 
 	/** Get system ids to update */
 	function getSystemIds(): string[] {
@@ -193,7 +204,7 @@ export function AlertContent({
 		return systemIds
 	}
 
-	function sendUpsert(min: number, value: number) {
+	function sendUpsert(min: number, value: number, partitions?: string[]) {
 		const systems = getSystemIds()
 		systems.length &&
 			upsertAlerts({
@@ -201,6 +212,7 @@ export function AlertContent({
 				value,
 				min,
 				systems,
+				excluded_partitions: partitions || excludedPartitions,
 			})
 	}
 
@@ -301,6 +313,36 @@ export function AlertContent({
 							</div>
 						</div>
 					</Suspense>
+					{/* Partition exclusion UI for disk alerts */}
+					{alertKey === "Disk" && availablePartitions.length > 0 && (
+						<div className="col-span-full pt-2 border-t border-muted-foreground/15">
+							<p className="text-sm mb-2">
+								<Trans>Excluded partitions:</Trans>
+							</p>
+							<div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+								{availablePartitions.map((partition) => (
+									<label
+										key={partition}
+										htmlFor={`part-${name}-${partition}`}
+										className="flex items-center gap-2 cursor-pointer text-sm"
+									>
+										<Checkbox
+											id={`part-${name}-${partition}`}
+											checked={excludedPartitions.includes(partition)}
+											onCheckedChange={(checked) => {
+												const newExcluded = checked
+													? [...excludedPartitions, partition]
+													: excludedPartitions.filter((p) => p !== partition)
+												setExcludedPartitions(newExcluded)
+												sendUpsert(min, value, newExcluded)
+											}}
+										/>
+										<span className="truncate">{partition}</span>
+									</label>
+								))}
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
