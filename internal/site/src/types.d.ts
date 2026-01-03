@@ -233,6 +233,7 @@ export interface AlertRecord extends RecordModel {
 	triggered: boolean
 	value: number
 	min: number
+	excluded_partitions?: string[]
 	// user: string
 }
 

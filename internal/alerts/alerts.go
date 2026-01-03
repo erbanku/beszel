@@ -57,18 +57,19 @@ type SystemAlertGPUData struct {
 }
 
 type SystemAlertData struct {
-	systemRecord *core.Record
-	alertRecord  *core.Record
-	name         string
-	unit         string
-	val          float64
-	threshold    float64
-	triggered    bool
-	time         time.Time
-	count        uint8
-	min          uint8
-	mapSums      map[string]float32
-	descriptor   string // override descriptor in notification body (for temp sensor, disk partition, etc)
+	systemRecord       *core.Record
+	alertRecord        *core.Record
+	name               string
+	unit               string
+	val                float64
+	threshold          float64
+	triggered          bool
+	time               time.Time
+	count              uint8
+	min                uint8
+	mapSums            map[string]float32
+	descriptor         string // override descriptor in notification body (for temp sensor, disk partition, etc)
+	excludedPartitions map[string]bool // partitions to exclude from disk alerts
 }
 
 // notification services that support title param
