@@ -10,6 +10,10 @@
 
 - Skip known non-unique product UUID when generating fingerprints. (#1556)
 
+- Add `MONITOR_ALL_DISKS` environment variable to automatically track all physical disk partitions. (#1581)
+
+- Add ability to exclude specific partitions from disk usage alerts. (#1581)
+
 ## 0.17.0
 
 - Add quiet hours to silence alerts during specific time periods. (#265)
