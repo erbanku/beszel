@@ -41,14 +41,42 @@ func (am *AlertManager) HandleSystemAlerts(systemRecord *core.Record, data *syst
 			val = data.Info.Bandwidth
 			unit = " MB/s"
 		case "Disk":
-			maxUsedPct := data.Info.DiskPct
-			for _, fs := range data.Stats.ExtraFs {
-				usedPct := fs.DiskUsed / fs.DiskTotal * 100
-				if usedPct > maxUsedPct {
-					maxUsedPct = usedPct
+			// Get excluded partitions list
+			var excludedPartitions []string
+			if err := alertRecord.UnmarshalJSONField("excluded_partitions", &excludedPartitions); err == nil && len(excludedPartitions) > 0 {
+				// Create a map for faster lookup
+				excludedMap := make(map[string]bool)
+				for _, partition := range excludedPartitions {
+					excludedMap[partition] = true
 				}
+				
+				// Check root disk first (only if not excluded)
+				maxUsedPct := 0.0
+				if !excludedMap["root"] {
+					maxUsedPct = data.Info.DiskPct
+				}
+				
+				// Check extra filesystems
+				for name, fs := range data.Stats.ExtraFs {
+					if !excludedMap[name] {
+						usedPct := fs.DiskUsed / fs.DiskTotal * 100
+						if usedPct > maxUsedPct {
+							maxUsedPct = usedPct
+						}
+					}
+				}
+				val = maxUsedPct
+			} else {
+				// No exclusions - check all partitions
+				maxUsedPct := data.Info.DiskPct
+				for _, fs := range data.Stats.ExtraFs {
+					usedPct := fs.DiskUsed / fs.DiskTotal * 100
+					if usedPct > maxUsedPct {
+						maxUsedPct = usedPct
+					}
+				}
+				val = maxUsedPct
 			}
-			val = maxUsedPct
 		case "Temperature":
 			if data.Info.DashboardTemp < 1 {
 				continue
@@ -103,6 +131,17 @@ func (am *AlertManager) HandleSystemAlerts(systemRecord *core.Record, data *syst
 			threshold:    threshold,
 			triggered:    triggered,
 			min:          min,
+		}
+
+		// For disk alerts, get excluded partitions
+		if name == "Disk" {
+			var excludedPartitions []string
+			if err := alertRecord.UnmarshalJSONField("excluded_partitions", &excludedPartitions); err == nil && len(excludedPartitions) > 0 {
+				alert.excludedPartitions = make(map[string]bool)
+				for _, partition := range excludedPartitions {
+					alert.excludedPartitions[partition] = true
+				}
+			}
 		}
 
 		// send alert immediately if min is 1 - no need to sum up values.
@@ -197,17 +236,21 @@ func (am *AlertManager) HandleSystemAlerts(systemRecord *core.Record, data *syst
 				if alert.mapSums == nil {
 					alert.mapSums = make(map[string]float32, len(data.Stats.ExtraFs)+1)
 				}
-				// add root disk
-				if _, ok := alert.mapSums["root"]; !ok {
-					alert.mapSums["root"] = 0.0
-				}
-				alert.mapSums["root"] += float32(stats.Disk)
-				// add extra disks
-				for key, fs := range data.Stats.ExtraFs {
-					if _, ok := alert.mapSums[key]; !ok {
-						alert.mapSums[key] = 0.0
+				// add root disk (if not excluded)
+				if alert.excludedPartitions == nil || !alert.excludedPartitions["root"] {
+					if _, ok := alert.mapSums["root"]; !ok {
+						alert.mapSums["root"] = 0.0
 					}
-					alert.mapSums[key] += float32(fs.DiskUsed / fs.DiskTotal * 100)
+					alert.mapSums["root"] += float32(stats.Disk)
+				}
+				// add extra disks (if not excluded)
+				for key, fs := range data.Stats.ExtraFs {
+					if alert.excludedPartitions == nil || !alert.excludedPartitions[key] {
+						if _, ok := alert.mapSums[key]; !ok {
+							alert.mapSums[key] = 0.0
+						}
+						alert.mapSums[key] += float32(fs.DiskUsed / fs.DiskTotal * 100)
+					}
 				}
 			case "Temperature":
 				if alert.mapSums == nil {
